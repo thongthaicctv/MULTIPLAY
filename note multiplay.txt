@@ -1,3 +1,9 @@
+
+git config --global user.email "thongthaicctv@gmail.com"
+git config --global user.name "Thong Thai"
+
+git commit -m "first commit ATG MultiPlay"
+
 ATG_MULTIPLAYVIDEO/
 │
 ├── core/
