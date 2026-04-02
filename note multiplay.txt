@@ -1,0 +1,32 @@
+ATG_MULTIPLAYVIDEO/
+│
+├── core/
+│     indexer.py
+│     sync_manager.py
+│     video_thread.py
+│     file_copy_thread.py
+│     config_manager.py
+│
+├── ui/
+│     main_window.py
+│     player_ffmpeg_widget.py
+│
+├── tools/
+│     index_multiplay_builder.py
+│
+├── main.py
+├── icon.ico
+
+
+python -m PyInstaller main.py --onefile --name "ATG_MULTIPLAY V1.0"--windowed --icon=icon.ico
+
+SHEET_URL = "https://opensheet.elk.sh/1wv0-rsNmf7dXBmnG7fn6c6ZnhE18wuZP8mobGrlslR0/LICENSE"
+
+python -m PyInstaller main.py --noconfirm --windowed --onedir --name "ATGMultiPlayV 1.0" --icon=icon.ico --hidden-import=requests --hidden-import=av --hidden-import=numpy --hidden-import=PyQt6.QtGui --hidden-import=PyQt6.QtWidgets --hidden-import=PyQt6.QtCore
+
+python -m PyInstaller main.py --onefile --windowed --name "ATGMultiPlay V1.0" --icon=icon.ico --hidden-import=requests --hidden-import=av --hidden-import=numpy --hidden-import=PyQt6.QtGui --hidden-import=PyQt6.QtWidgets --hidden-import=PyQt6.QtCore 
+
+python -m PyInstaller main.py --onefile --windowed --name "ATG_Multi_Play_V1.0" --icon=icon.ico --collect-all av --collect-all PyQt6 --collect-all numpy --hidden-import=requests
+
+
+pyinstaller --noconfirm --onefile --name "ATG-MultiPlay"--windowed --icon=icon.ico --add-data "icon.ico;." --add-data "antn.png;." main.py
