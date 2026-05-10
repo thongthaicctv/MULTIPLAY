@@ -4,6 +4,9 @@ git config --global user.name "Thong Thai"
 
 git commit -m "first commit ATG MultiPlay"
 
+git config --global --list # check ok chưa?
+git push
+
 ATG_MULTIPLAYVIDEO/
 │
 ├── core/
@@ -36,3 +39,5 @@ python -m PyInstaller main.py --onefile --windowed --name "ATG_Multi_Play_V1.0" 
 
 
 pyinstaller --noconfirm --onefile --name "ATG-MultiPlay"--windowed --icon=icon.ico --add-data "icon.ico;." --add-data "antn.png;." main.py
+
+pyinstaller --noconfirm --onefile --name "MultiPlay"--windowed --icon=icon.ico --add-data "icon.ico;." --add-data "antn.png;." main.py

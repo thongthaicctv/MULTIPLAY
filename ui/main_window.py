@@ -29,7 +29,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("ATG MULTIPLAY V8.7 (phần mềm xem nhiều video cùng lúc cho ATG Recorder - hotline:  0904143113)")
+        self.setWindowTitle("ATG MULTIPLAY for INTELLIGENT_AI_SYSTEM (phần mềm xem nhiều video cùng lúc - hotline:  0904143113)")
         self.resize(900, 600)
         
         self.logo = QLabel()
@@ -195,7 +195,7 @@ class MainWindow(QMainWindow):
 
         if not data:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Error", "Không tìm thấy index.json Recorder")
+            QMessageBox.critical(self, "Error", "Không tìm thấy dữ liệu index. Cần có thư mục index chứa file YYYY-MM-DD.json")
             return
 
         self.index = data

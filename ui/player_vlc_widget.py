@@ -70,7 +70,7 @@ class PlayerVLC(QWidget):
             self,
             "Save Video",
             name,
-            "Video (*.mkv)"
+            "Video (*.mp4 *.mkv *.avi *.mov)"
         )
 
         if not save_path:
