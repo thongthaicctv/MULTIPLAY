@@ -6,6 +6,8 @@ class IndexBuilder:
     """
     Build video_index.json cho ATG-MultiPlay từ chuẩn index mới của ATG Recorder.
 
+    Hỗ trợ MP4 + MKV + AVI + MOV + TS.
+
     Hỗ trợ:
     1) Chuẩn mới:
        <root>/index/YYYY-MM-DD.json
@@ -20,12 +22,12 @@ class IndexBuilder:
        {
            "MA_DON": [
                "2026-05-10/video_1.mp4",
-               "2026-05-10/video_2.mp4"
+               "2026-05-10/video_2.mkv"
            ]
        }
     """
 
-    VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov")
+    VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".ts")
 
     def __init__(self, root):
         self.root = root

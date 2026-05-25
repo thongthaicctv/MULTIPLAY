@@ -9,9 +9,10 @@ from PyQt6.QtWidgets import (
 
 from PyQt6.QtCore import Qt
 
-from core.indexer import Indexer
+
 from core.sync_manager import SyncManager
 from core.config_manager import ConfigManager
+from core.indexer import Indexer
 
 from ui.player_vlc_widget import PlayerVLC
 
@@ -22,6 +23,8 @@ from utils import resource_path
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtGui import QColor
 
+from core.database_reader import DatabaseReader
+
 
 
 class MainWindow(QMainWindow):
@@ -29,7 +32,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("ATG MULTIPLAY for INTELLIGENT_AI_SYSTEM (phần mềm xem nhiều video cùng lúc - hotline:  0904143113)")
+        self.setWindowTitle("ATG MULTIPLAY V8.8 (phần mềm xem nhiều video cùng lúc cho ATG Recorder - hotline:  0904143113)")
         self.resize(900, 600)
         
         self.logo = QLabel()
@@ -39,6 +42,7 @@ class MainWindow(QMainWindow):
 
         self.index = {}
         self.players = []
+        self.play_folder = None
 
         self.sync = SyncManager()
         self.config = ConfigManager()
@@ -59,26 +63,7 @@ class MainWindow(QMainWindow):
         self.search.setPlaceholderText("Tìm mã đơn hàng...")
         self.search.textChanged.connect(self.filter_order)
 
-        self.btn_pick = QPushButton("📁 CHỌN THƯ MỤC ")
-        
-        self.btn_pick.clicked.connect(self.pick_folder)
-        self.btn_pick.setStyleSheet("""
-            QPushButton {
-                border: 2px solid #007bff;
-                background-color: #e7f1ff;
-                color: #003366;
-                font-weight: bold;
-                padding: 6px;
-                border-radius: 6px;
-            }
-            QPushButton:hover {
-                background-color: #cce5ff;
-                border: 2px solid #0056b3;
-            }
-            QPushButton:pressed {
-                background-color: #99ccff;
-            }
-        """)
+
 
         self.order_list = QListWidget()
         self.order_list.itemClicked.connect(self.load_files)
@@ -117,7 +102,12 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.update_timeline)
         self.timer.start(500)
 
-        left.addWidget(self.btn_pick)
+        self.db_refresh_timer = QTimer()
+        self.db_refresh_timer.timeout.connect(
+            lambda: self.load_index_from_database(silent=True)
+        )
+
+    
 
         left.addWidget(self.search)
         
@@ -166,25 +156,34 @@ class MainWindow(QMainWindow):
 
     def load_saved_folder(self):
 
-        folder = self.config.load_folder()
+        self.play_folder = self.config.load_folder()
 
-        if folder and os.path.exists(folder):
-            self.lbl_folder.setText(folder)
-            self.load_index(folder)
-
-    # ================= PICK =================
-
-    def pick_folder(self):
-
-        folder = QFileDialog.getExistingDirectory(self)
-
-        if not folder:
+        if not self.play_folder:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Loi Config",
+                "Khong tim thay storage_path/play_path hop le trong config.json cua ATG Recorder"
+            )
             return
 
-        self.lbl_folder.setText(folder)
+        self.lbl_folder.setText(self.play_folder)
 
-        self.config.save_folder(folder)
-        self.load_index(folder)
+        db_config = self.config.load_database_config()
+
+        if not db_config:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Loi Database",
+                "Khong tim thay cau hinh database trong config.json"
+            )
+            return
+
+        self.load_index_from_database()
+        self.db_refresh_timer.start(5000)
+
+
 
     # ================= INDEX =================
 
@@ -224,9 +223,10 @@ class MainWindow(QMainWindow):
 
     # ================= FILE LOAD =================
 
-    def load_files(self, item):
+    def load_files(self, item, checked_paths=None):
 
         order = item.text()
+        checked_paths = checked_paths or set()
 
         self.file_list.clear()
 
@@ -234,7 +234,11 @@ class MainWindow(QMainWindow):
 
             it = QListWidgetItem(os.path.basename(path))
             it.setData(Qt.ItemDataRole.UserRole, path)
-            it.setCheckState(Qt.CheckState.Unchecked)
+
+            if path in checked_paths:
+                it.setCheckState(Qt.CheckState.Checked)
+            else:
+                it.setCheckState(Qt.CheckState.Unchecked)
 
             self.file_list.addItem(it)
 
@@ -335,3 +339,55 @@ class MainWindow(QMainWindow):
         self.timeline.setValue(value)
         self.timeline.blockSignals(False)
         #self.sync.start()
+
+    def load_index_from_database(self, silent=False):
+
+        reader = DatabaseReader(
+            self.config.load_database_config(),
+            self.play_folder
+        )
+
+        data = reader.load_video_index()
+
+        if not data:
+            if silent:
+                return
+
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Khong tim thay video trong database MySQL"
+            )
+            return
+
+        if data == self.index:
+            return
+
+        current_order = None
+        current_item = self.order_list.currentItem()
+        checked_paths = set()
+
+        if current_item:
+            current_order = current_item.text()
+
+        for i in range(self.file_list.count()):
+            file_item = self.file_list.item(i)
+
+            if file_item.checkState() == Qt.CheckState.Checked:
+                checked_paths.add(file_item.data(Qt.ItemDataRole.UserRole))
+
+        self.index = data
+        self.filter_order(self.search.text())
+
+        if current_order and current_order in self.index:
+            matches = self.order_list.findItems(
+                current_order,
+                Qt.MatchFlag.MatchExactly
+            )
+
+            if matches:
+                self.order_list.setCurrentItem(matches[0])
+                self.load_files(matches[0], checked_paths)
+
+        print("MYSQL ORDERS:", len(self.index))

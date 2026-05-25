@@ -1,7 +1,42 @@
-import vlc
-import sys
+
 import os
+import sys
+import ctypes
 import shutil
+
+def setup_vlc_path():
+    base_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+
+    possible_paths = [
+        os.path.join(base_dir, "bin", "vlc"),
+        os.path.join(base_dir, "vlc"),
+        r"C:\Program Files\VideoLAN\VLC",
+        r"C:\Program Files (x86)\VideoLAN\VLC",
+    ]
+
+    for p in possible_paths:
+        dll = os.path.join(p, "libvlc.dll")
+        plugins = os.path.join(p, "plugins")
+
+        if os.path.exists(dll) and os.path.isdir(plugins):
+            os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
+            os.environ["PYTHON_VLC_MODULE_PATH"] = plugins
+            os.environ["PYTHON_VLC_LIB_PATH"] = dll
+
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(p)
+
+            ctypes.CDLL(dll)
+            print("FOUND VLC:", p)
+            return p
+
+    raise RuntimeError(
+        "Không tìm thấy VLC. Hãy cài VLC hoặc copy VLC vào bin/vlc."
+    )
+
+VLC_PATH = setup_vlc_path()
+
+import vlc
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QPushButton,
@@ -18,9 +53,11 @@ class PlayerVLC(QWidget):
 
         # ===== VLC =====
         self.instance = vlc.Instance(
-            "--avcodec-hw=none",
-            "--vout=opengl",
-            "--quiet"
+            "--quiet",
+            "--network-caching=150",
+            "--file-caching=150",
+            "--drop-late-frames",
+            "--skip-frames"
         )
         self.player = self.instance.media_player_new()
 
@@ -70,7 +107,7 @@ class PlayerVLC(QWidget):
             self,
             "Save Video",
             name,
-            "Video (*.mp4 *.mkv *.avi *.mov)"
+            "Video (*.mp4 *.mkv *.avi *.mov *.ts)"
         )
 
         if not save_path:

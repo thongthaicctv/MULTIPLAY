@@ -6,7 +6,7 @@ from core.index_builder import IndexBuilder
 
 class Indexer:
 
-    VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov")
+    VIDEO_EXTS = (".mp4", ".mkv", ".avi", ".mov", ".ts")
 
     def __init__(self, root):
         self.root = root
