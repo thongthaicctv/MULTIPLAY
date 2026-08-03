@@ -1,0 +1,7 @@
+PyQt6>=6.6,<7
+python-vlc>=3.0.20123,<4
+PyMySQL>=1.1,<2
+requests>=2.31,<3
+av>=12,<17
+numpy>=1.26,<3
+PyInstaller>=6.0,<7
