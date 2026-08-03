@@ -100,6 +100,10 @@ Khi chạy, ứng dụng tải tối đa 10.000 bản ghi video mới nhất và
 4. Bấm **Ghép video đã chọn** và chọn nơi lưu file MP4.
 5. Theo dõi tiến trình hoặc bấm **Huỷ ghép** khi cần.
 
+Ở chế độ `Tự động`, hai video được ưu tiên xếp dọc: video thứ nhất ở
+trên và video thứ hai ở dưới. Với 3–4 video, ứng dụng dùng lưới 2x2.
+Lựa chọn `Ngang` vẫn có thể được sử dụng khi cần xếp các video trên cùng một hàng.
+
 Video kết quả dùng H.264, âm thanh AAC từ camera đầu tiên có audio và kết thúc theo video ngắn nhất. Ứng dụng không sửa, di chuyển hay xoá video nguồn và không ghi kết quả vào database. Log tác vụ nằm tại `logs/multiplay_merge.log`.
 
 ## Đóng gói file EXE

@@ -31,10 +31,10 @@ class VideoMergeCommandTests(unittest.TestCase):
         infos = [VideoInfo(duration=10, has_audio=i == audio_index) for i in range(len(paths))]
         return build_ffmpeg_command("ffmpeg", paths, str(self.root / "out.part.mp4"), layout, infos)
 
-    def test_two_mp4_auto_uses_horizontal_stack(self):
+    def test_two_mp4_auto_uses_vertical_stack(self):
         command = self.command(self.make_inputs([".mp4", ".mp4"]))
         filters = command[command.index("-filter_complex") + 1]
-        self.assertIn("hstack=inputs=2", filters)
+        self.assertIn("vstack=inputs=2", filters)
         self.assertNotIn("shell=True", command)
 
     def test_two_mkv_are_accepted(self):
@@ -100,7 +100,7 @@ class VideoMergeCommandTests(unittest.TestCase):
         validate_merge_inputs(paths, str(output))
 
     def test_auto_layout_rules(self):
-        self.assertEqual(resolve_layout("auto", 2), "horizontal")
+        self.assertEqual(resolve_layout("auto", 2), "vertical")
         self.assertEqual(resolve_layout("auto", 3), "grid")
         self.assertEqual(resolve_layout("auto", 4), "grid")
 

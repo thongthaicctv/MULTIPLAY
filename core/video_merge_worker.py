@@ -51,7 +51,8 @@ def resolve_layout(layout: str, count: int) -> str:
     if layout not in VALID_LAYOUTS:
         raise ValueError(f"Bố cục không hợp lệ: {layout}")
     if layout == "auto":
-        return "horizontal" if count == 2 else "grid"
+        # Ưu tiên bố cục dọc cho 2 video: video 1 trên, video 2 dưới.
+        return "vertical" if count == 2 else "grid"
     return layout
 
 
