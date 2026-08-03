@@ -4,6 +4,8 @@
 a = Analysis(
     ['main.py'],
     pathex=[],
+    # Khi phát hành kèm FFmpeg, bỏ comment hai dòng dưới và bảo đảm file tồn tại:
+    # binaries=[('bin/ffmpeg.exe', 'bin'), ('bin/ffprobe.exe', 'bin')],
     binaries=[],
     datas=[('icon.ico', '.'), ('antn.png', '.')],
     hiddenimports=['pymysql'],

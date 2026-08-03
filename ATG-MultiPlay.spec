@@ -1,10 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
+
+project_dir = os.path.abspath(SPECPATH)
+binaries = []
+
+for executable in ("ffmpeg.exe", "ffprobe.exe"):
+    executable_path = os.path.join(project_dir, "bin", executable)
+    if os.path.isfile(executable_path):
+        binaries.append((executable_path, "bin"))
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=binaries,
     datas=[('icon.ico', '.'), ('antn.png', '.')],
     hiddenimports=['pymysql'],
     hookspath=[],

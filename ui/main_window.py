@@ -1,10 +1,12 @@
 import os
+import re
+from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QListWidget, QListWidgetItem,
     QFileDialog, QLineEdit, QLabel, QSlider,
-    QGridLayout, QScrollArea
+    QGridLayout, QScrollArea, QComboBox, QProgressBar, QMessageBox
 )
 
 from PyQt6.QtCore import Qt
@@ -24,6 +26,7 @@ from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtGui import QColor
 
 from core.database_reader import DatabaseReader
+from core.video_merge_worker import VideoMergeWorker
 
 
 
@@ -43,6 +46,8 @@ class MainWindow(QMainWindow):
         self.index = {}
         self.players = []
         self.play_folder = None
+        self.current_order_code = None
+        self.merge_worker = None
 
         self.sync = SyncManager()
         self.config = ConfigManager()
@@ -69,6 +74,7 @@ class MainWindow(QMainWindow):
         self.order_list.itemClicked.connect(self.load_files)
 
         self.file_list = QListWidget()
+        self.file_list.itemChanged.connect(self.update_merge_button_state)
 
         self.btn_play = QPushButton("▶ Phát các video đã chọn")
         self.btn_play.clicked.connect(self.play_checked)
@@ -116,6 +122,32 @@ class MainWindow(QMainWindow):
         left.addWidget(QLabel("Chọn video để phát"))
         left.addWidget(self.file_list)
         left.addWidget(self.btn_play)
+
+        merge_row = QHBoxLayout()
+        self.layout_combo = QComboBox()
+        self.layout_combo.addItem("Tự động", "auto")
+        self.layout_combo.addItem("Ngang", "horizontal")
+        self.layout_combo.addItem("Dọc", "vertical")
+        self.layout_combo.addItem("Lưới 2x2", "grid")
+        merge_row.addWidget(QLabel("Bố cục ghép"))
+        merge_row.addWidget(self.layout_combo)
+        left.addLayout(merge_row)
+
+        self.btn_merge = QPushButton("🎞 Ghép video đã chọn")
+        self.btn_merge.clicked.connect(self.merge_checked)
+        self.btn_merge.setEnabled(False)
+        left.addWidget(self.btn_merge)
+
+        self.merge_status = QLabel("Sẵn sàng")
+        self.merge_progress = QProgressBar()
+        self.merge_progress.setRange(0, 100)
+        self.merge_progress.setValue(0)
+        self.btn_cancel_merge = QPushButton("Huỷ ghép")
+        self.btn_cancel_merge.clicked.connect(self.cancel_merge)
+        self.btn_cancel_merge.setEnabled(False)
+        left.addWidget(self.merge_status)
+        left.addWidget(self.merge_progress)
+        left.addWidget(self.btn_cancel_merge)
 
         # ===== RIGHT PANEL =====
         self.grid = QGridLayout()
@@ -226,6 +258,7 @@ class MainWindow(QMainWindow):
     def load_files(self, item, checked_paths=None):
 
         order = item.text()
+        self.current_order_code = order
         checked_paths = checked_paths or set()
 
         self.file_list.clear()
@@ -241,6 +274,7 @@ class MainWindow(QMainWindow):
                 it.setCheckState(Qt.CheckState.Unchecked)
 
             self.file_list.addItem(it)
+        self.update_merge_button_state()
 
     # ===== PLAY MULTI =====
 
@@ -256,13 +290,7 @@ class MainWindow(QMainWindow):
         self.players.clear()
         self.sync.clear()
 
-        paths = []
-
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-
-            if item.checkState() == Qt.CheckState.Checked:
-                paths.append(item.data(Qt.ItemDataRole.UserRole))
+        paths = self.get_checked_video_paths()
 
         if not paths:
             return
@@ -302,6 +330,143 @@ class MainWindow(QMainWindow):
 
         # 🔥 delay để VLC load xong
         QTimer.singleShot(800, update_length)
+
+    def get_checked_video_paths(self) -> list[str]:
+        paths = []
+        for index in range(self.file_list.count()):
+            item = self.file_list.item(index)
+            if item.checkState() == Qt.CheckState.Checked:
+                paths.append(str(item.data(Qt.ItemDataRole.UserRole)))
+        return paths
+
+    def update_merge_button_state(self, _item=None) -> None:
+        can_merge = (
+            self.merge_worker is None
+            and bool(self.current_order_code)
+            and len(self.get_checked_video_paths()) >= 2
+        )
+        self.btn_merge.setEnabled(can_merge)
+
+    @staticmethod
+    def _safe_order_code(order_code: str | None) -> str:
+        cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", (order_code or "").strip())
+        return cleaned.strip("_") or "UNKNOWN_ORDER"
+
+    def merge_checked(self) -> None:
+        paths = self.get_checked_video_paths()
+        if len(paths) < 2:
+            QMessageBox.warning(self, "Ghép video", "Vui lòng chọn ít nhất 2 video để ghép.")
+            return
+        if len(paths) > 4:
+            QMessageBox.warning(self, "Ghép video", "Phase 2 chỉ hỗ trợ ghép tối đa 4 video.")
+            return
+
+        missing = [path for path in paths if not os.path.isfile(path)]
+        if missing:
+            QMessageBox.critical(
+                self, "Không thể ghép video",
+                "Các file sau không tồn tại hoặc không truy cập được:\n" + "\n".join(missing),
+            )
+            return
+
+        order_code = self._safe_order_code(self.current_order_code)
+        default_name = f"MERGED_{order_code}_{datetime.now():%Y%m%d_%H%M%S}.mp4"
+        default_path = os.path.join(self.play_folder or os.getcwd(), default_name)
+        output_path, _ = QFileDialog.getSaveFileName(
+            self, "Lưu video đã ghép", default_path, "Video MP4 (*.mp4)"
+        )
+        if not output_path:
+            return
+        if not output_path.lower().endswith(".mp4"):
+            output_path += ".mp4"
+
+        input_keys = {os.path.normcase(os.path.abspath(path)) for path in paths}
+        if os.path.normcase(os.path.abspath(output_path)) in input_keys:
+            QMessageBox.critical(self, "Đường dẫn không hợp lệ", "File kết quả không được trùng file nguồn.")
+            return
+        if os.path.exists(output_path):
+            answer = QMessageBox.question(
+                self, "Xác nhận ghi đè",
+                "File kết quả đã tồn tại. Bạn có muốn ghi đè không?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        self.start_merge(paths, output_path)
+
+    def start_merge(self, paths: list[str], output_path: str) -> None:
+        layout = str(self.layout_combo.currentData())
+        self.merge_worker = VideoMergeWorker(
+            paths, output_path, layout, self.current_order_code or "UNKNOWN_ORDER"
+        )
+        self.merge_worker.progress_changed.connect(self.on_merge_progress)
+        self.merge_worker.status_changed.connect(self.merge_status.setText)
+        self.merge_worker.completed.connect(self.on_merge_completed)
+        self.merge_worker.failed.connect(self.on_merge_failed)
+        self.merge_worker.cancelled.connect(self.on_merge_cancelled)
+        self.merge_worker.finished.connect(self.on_merge_thread_finished)
+        self.merge_progress.setRange(0, 100)
+        self.merge_progress.setValue(0)
+        self.merge_status.setText("Đang chuẩn bị ghép…")
+        self.btn_merge.setEnabled(False)
+        self.btn_cancel_merge.setEnabled(True)
+        self.merge_worker.start()
+
+    def cancel_merge(self) -> None:
+        if self.merge_worker and self.merge_worker.isRunning():
+            self.merge_status.setText("Đang huỷ…")
+            self.btn_cancel_merge.setEnabled(False)
+            self.merge_worker.cancel()
+
+    def on_merge_progress(self, percent: int) -> None:
+        if percent < 0:
+            self.merge_progress.setRange(0, 0)
+            return
+        if self.merge_progress.maximum() == 0:
+            self.merge_progress.setRange(0, 100)
+        self.merge_progress.setValue(percent)
+
+    def on_merge_completed(self, output_path: str) -> None:
+        self.merge_progress.setRange(0, 100)
+        self.merge_progress.setValue(100)
+        self.merge_status.setText("Ghép hoàn tất")
+        QMessageBox.information(self, "Ghép hoàn tất", f"Đã lưu video tại:\n{output_path}")
+
+    def on_merge_failed(self, message: str) -> None:
+        self.merge_progress.setRange(0, 100)
+        self.merge_status.setText("Ghép thất bại")
+        QMessageBox.critical(self, "Ghép video thất bại", message)
+
+    def on_merge_cancelled(self) -> None:
+        self.merge_progress.setRange(0, 100)
+        self.merge_progress.setValue(0)
+        self.merge_status.setText("Đã huỷ")
+
+    def on_merge_thread_finished(self) -> None:
+        worker = self.merge_worker
+        self.merge_worker = None
+        self.btn_cancel_merge.setEnabled(False)
+        self.update_merge_button_state()
+        if worker:
+            worker.deleteLater()
+
+    def closeEvent(self, event) -> None:
+        if self.merge_worker and self.merge_worker.isRunning():
+            answer = QMessageBox.question(
+                self,
+                "Đang ghép video",
+                "Video đang được ghép. Bạn có muốn huỷ tác vụ và đóng ứng dụng không?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            self.merge_worker.cancel()
+            self.merge_worker.wait(3000)
+        event.accept()
 
     #TẠO HÀM SEEK CHUẨN
     def seek_all(self):

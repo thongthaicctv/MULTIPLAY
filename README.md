@@ -7,6 +7,7 @@
 - Windows 10/11 64-bit
 - Python 3.10 trở lên (khuyến nghị Python 3.10 hoặc 3.11, 64-bit)
 - VLC Media Player 64-bit
+- FFmpeg (nên kèm cả `ffmpeg.exe` và `ffprobe.exe`)
 - MySQL và thư mục video của ATG Recorder có thể truy cập từ máy đang chạy
 
 > Python và VLC phải cùng kiến trúc, ví dụ đều là 64-bit. Ứng dụng tìm VLC tại `bin/vlc`, `vlc`, `C:\Program Files\VideoLAN\VLC` hoặc `C:\Program Files (x86)\VideoLAN\VLC`.
@@ -33,6 +34,18 @@ Cài [VLC Media Player](https://www.videolan.org/vlc/) 64-bit nếu máy chưa c
 
 ```powershell
 Test-Path "C:\Program Files\VideoLAN\VLC\libvlc.dll"
+```
+
+Để dùng chức năng ghép video, tải bản FFmpeg cho Windows rồi chọn một trong hai cách:
+
+- Chép `ffmpeg.exe` và `ffprobe.exe` vào thư mục `bin` của dự án.
+- Hoặc thêm thư mục chứa FFmpeg vào biến môi trường `PATH`.
+
+Kiểm tra FFmpeg:
+
+```powershell
+ffmpeg -version
+ffprobe -version
 ```
 
 ## Cấu hình
@@ -79,15 +92,47 @@ python main.py
 
 Khi chạy, ứng dụng tải tối đa 10.000 bản ghi video mới nhất và làm mới danh sách từ database mỗi 5 giây. Các định dạng được hỗ trợ: `.mp4`, `.mkv`, `.avi`, `.mov`, `.ts`.
 
+## Ghép video theo đơn hàng
+
+1. Chọn một mã đơn hàng.
+2. Tích từ 2 đến 4 video trong danh sách.
+3. Chọn bố cục `Tự động`, `Ngang`, `Dọc` hoặc `Lưới 2x2`.
+4. Bấm **Ghép video đã chọn** và chọn nơi lưu file MP4.
+5. Theo dõi tiến trình hoặc bấm **Huỷ ghép** khi cần.
+
+Video kết quả dùng H.264, âm thanh AAC từ camera đầu tiên có audio và kết thúc theo video ngắn nhất. Ứng dụng không sửa, di chuyển hay xoá video nguồn và không ghi kết quả vào database. Log tác vụ nằm tại `logs/multiplay_merge.log`.
+
 ## Đóng gói file EXE
 
 Dự án đã có file cấu hình PyInstaller. Sau khi cài dependencies, chạy:
 
 ```powershell
-pyinstaller --noconfirm ATG-MultiPlay.spec
+.\build_onefile.ps1
+```
+
+Script tạo một file duy nhất tại `dist/ATG-MultiPlay.exe` và tự đóng gói
+`bin/ffmpeg.exe`, `bin/ffprobe.exe` nếu có. Nếu PowerShell chặn script:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\build_onefile.ps1
+```
+
+Để đóng gói kèm FFmpeg/ffprobe mà không sửa file `.spec`:
+
+```powershell
+pyinstaller --noconfirm --onefile --windowed --name "ATG-MultiPlay" `
+  --icon=icon.ico --add-data "icon.ico;." --add-data "antn.png;." `
+  --add-binary "bin/ffmpeg.exe;bin" --add-binary "bin/ffprobe.exe;bin" main.py
 ```
 
 File kết quả nằm trong thư mục `dist`. Khi chuyển sang máy khác, đặt `config.json` cạnh file `.exe`. Máy đích vẫn cần VLC; hoặc có thể chép toàn bộ thư mục VLC vào `bin/vlc` cạnh file `.exe`.
+
+## Chạy kiểm thử
+
+```powershell
+python -m unittest discover -s tests -v
+```
 
 ## Lỗi thường gặp
 
