@@ -1,0 +1,16 @@
+# --- Python / virtualenv ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- PyInstaller build output ---
+build/
+dist/
+
+# --- Runtime logs ---
+*.log
+
+# --- FFmpeg runtime binaries (~240 MB moi file, vuot gioi han 100 MB cua GitHub).
+#     Van giu local trong bin/ de chay app va de ATG-MultiPlay.spec dong goi khi build.
+bin/*.exe
