@@ -1,4 +1,4 @@
-"""Worker ghép đồng thời 2-4 video bằng FFmpeg."""
+"""Worker ghép đồng thời 2-5 video bằng FFmpeg."""
 
 from __future__ import annotations
 
@@ -16,13 +16,80 @@ from core.video_probe import VideoInfo, probe_video
 
 SUPPORTED_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".ts"}
 VALID_LAYOUTS = {"auto", "horizontal", "vertical", "grid"}
+PRESENTATION_WIDTH = 1920
+PRESENTATION_HEIGHT = 1080
+# MULTIPLAY-VIDEO-MERGE-HARDENING-2B: gioi han video dau vao va kich thuoc canvas
+MIN_INPUTS = 2
+MAX_INPUTS = 5
+MAX_CANVAS_WIDTH = 3840
+MAX_CANVAS_HEIGHT = 2160
+
+# Windows process creation flags (dinh nghia lai de dung duoc tren moi OS)
+_CREATE_NO_WINDOW = 0x08000000
+_BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+
+
+def is_unc_path(path: str) -> bool:
+    """Duong dan mang UNC (dang //server/share hoac 2 dau backslash) - KHONG probe tren UI thread."""
+    value = str(path or "")
+    return value.startswith("\\\\") or value.startswith("//")
+
+
+def local_missing_paths(input_paths: list[str]) -> list[str]:
+    """Kiem tra nhanh file LOCAL cho UI; bo qua UNC (worker se validate ngoai UI thread)."""
+    return [path for path in input_paths if not is_unc_path(path) and not os.path.isfile(path)]
+
+
+def ffmpeg_creationflags(os_name: str | None = None) -> int:
+    """Windows: an cua so console + uu tien BELOW_NORMAL de khong tranh CPU voi playback/UI."""
+    if (os_name or os.name) != "nt":
+        return 0
+    return (
+        getattr(subprocess, "CREATE_NO_WINDOW", _CREATE_NO_WINDOW)
+        | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", _BELOW_NORMAL_PRIORITY_CLASS)
+    )
+
+
+def layout_shape(resolved_layout: str, count: int) -> tuple[int, int]:
+    """(so cot, so hang) cua bo cuc."""
+    if resolved_layout == "horizontal":
+        return count, 1
+    if resolved_layout == "vertical":
+        return 1, count
+    return (3, 2) if count == 5 else (2, 2)
+
+
+def cell_size(cols: int, rows: int) -> tuple[int, int]:
+    """O cho moi camera: toi da 1920x1080, canvas toi da 3840x2160, kich thuoc chan."""
+    cell_w = min(PRESENTATION_WIDTH, MAX_CANVAS_WIDTH // cols)
+    cell_h = min(PRESENTATION_HEIGHT, MAX_CANVAS_HEIGHT // rows)
+    return cell_w - cell_w % 2, cell_h - cell_h % 2
+
+
+def normalize_mp4_output_path(output_path: str) -> str:
+    path = Path(output_path)
+    if path.suffix.lower() == ".mp4":
+        return str(path)
+    return str(path.with_suffix(".mp4"))
+
+
+def parse_progress_percent(value: str | None, duration: float | None) -> int | None:
+    if not duration or duration <= 0:
+        return None
+    try:
+        progress_us = int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+    if progress_us is None:
+        return None
+    return min(99, max(0, int((progress_us / 1_000_000) / duration * 100)))
 
 
 def validate_merge_inputs(input_paths: list[str], output_path: str) -> None:
-    if len(input_paths) < 2:
+    if len(input_paths) < MIN_INPUTS:
         raise ValueError("Vui lòng chọn ít nhất 2 video để ghép.")
-    if len(input_paths) > 4:
-        raise ValueError("Phase 2 chỉ hỗ trợ ghép tối đa 4 video.")
+    if len(input_paths) > MAX_INPUTS:
+        raise ValueError("Chỉ hỗ trợ ghép tối đa 5 video.")
     if not output_path:
         raise ValueError("Chưa chọn đường dẫn lưu video kết quả.")
 
@@ -52,6 +119,7 @@ def resolve_layout(layout: str, count: int) -> str:
         raise ValueError(f"Bố cục không hợp lệ: {layout}")
     if layout == "auto":
         # Ưu tiên bố cục dọc cho 2 video: video 1 trên, video 2 dưới.
+        # 3-4 video: lưới 2x2; 5 video: lưới 3 cột x 2 hàng (xem layout_shape).
         return "vertical" if count == 2 else "grid"
     return layout
 
@@ -68,17 +136,15 @@ def build_ffmpeg_command(
     if resolved == "grid" and count < 2:
         raise ValueError("Bố cục lưới cần ít nhất 2 video.")
 
-    if resolved == "horizontal":
-        cell_w = 640 if count == 2 else (480 if count == 3 else 400)
-    else:
-        cell_w = 640
-    cell_h = round(cell_w * 9 / 16)
+    cols, rows = layout_shape(resolved, count)
+    cell_w, cell_h = cell_size(cols, rows)
 
     filters = []
     for index in range(count):
         filters.append(
-            f"[{index}:v]scale={cell_w}:{cell_h}:force_original_aspect_ratio=decrease,"
-            f"pad={cell_w}:{cell_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=25[v{index}]"
+            f"[{index}:v]scale={cell_w}:{cell_h}:force_original_aspect_ratio=decrease:"
+            "force_divisible_by=2:flags=lanczos,"
+            f"pad={cell_w}:{cell_h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1[v{index}]"
         )
 
     labels = "".join(f"[v{i}]" for i in range(count))
@@ -87,13 +153,13 @@ def build_ffmpeg_command(
     elif resolved == "vertical":
         filters.append(f"{labels}vstack=inputs={count}[vout]")
     else:
-        positions = ["0_0", f"{cell_w}_0", f"0_{cell_h}", f"{cell_w}_{cell_h}"]
+        positions = [f"{(i % cols) * cell_w}_{(i // cols) * cell_h}" for i in range(count)]
         filters.append(
-            f"{labels}xstack=inputs={count}:layout={'|'.join(positions[:count])}:"
+            f"{labels}xstack=inputs={count}:layout={'|'.join(positions)}:"
             "fill=black[vgrid]"
         )
         filters.append(
-            f"[vgrid]pad={cell_w * 2}:{cell_h * 2}:0:0:black[vout]"
+            f"[vgrid]pad={cell_w * cols}:{cell_h * rows}:0:0:black[vout]"
         )
 
     command = [ffmpeg_path, "-hide_banner", "-y"]
@@ -114,9 +180,9 @@ def build_ffmpeg_command(
         command.append("-an")
 
     command.extend([
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "15",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-shortest",
-        "-progress", "pipe:1", "-nostats", temp_output,
+        "-progress", "pipe:1", "-nostats", "-f", "mp4", temp_output,
     ])
     return command
 
@@ -131,11 +197,11 @@ class VideoMergeWorker(QThread):
     def __init__(self, input_paths: list[str], output_path: str, layout: str, order_code: str):
         super().__init__()
         self.input_paths = list(input_paths)
-        self.output_path = os.path.abspath(output_path)
+        self.output_path = os.path.abspath(normalize_mp4_output_path(output_path))
         self.layout = layout
         self.order_code = order_code
         output = Path(self.output_path)
-        self.temp_output = str(output.with_name(f"{output.stem}.part{output.suffix}"))
+        self.temp_output = str(output.with_name(f"{output.stem}.part.mp4"))
         self._process: subprocess.Popen[str] | None = None
         self._cancel_requested = threading.Event()
         self._logger = self._create_logger()
@@ -174,7 +240,7 @@ class VideoMergeWorker(QThread):
                 self.order_code, len(self.input_paths), self.layout,
                 self.input_paths, self.output_path, command,
             )
-            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            creationflags = ffmpeg_creationflags()
             self._process = subprocess.Popen(
                 command,
                 stdout=subprocess.PIPE,
@@ -200,7 +266,9 @@ class VideoMergeWorker(QThread):
                     break
                 key, _, value = raw_line.strip().partition("=")
                 if key in {"out_time_us", "out_time_ms"} and duration:
-                    percent = min(99, max(0, int((int(value) / 1_000_000) / duration * 100)))
+                    percent = parse_progress_percent(value, duration)
+                    if percent is None:
+                        continue
                     self.progress_changed.emit(percent)
                     self.status_changed.emit(f"Đang ghép: {percent}%")
 
@@ -221,6 +289,7 @@ class VideoMergeWorker(QThread):
             self._logger.info("SUCCESS order=%s output=%s", self.order_code, self.output_path)
             self.completed.emit(self.output_path)
         except Exception as exc:
+            self._stop_process()
             self._cleanup_temp()
             self._logger.exception("FAILED order=%s error=%s", self.order_code, exc)
             self.failed.emit(str(exc))
@@ -229,14 +298,23 @@ class VideoMergeWorker(QThread):
 
     def cancel(self) -> None:
         self._cancel_requested.set()
+        self._stop_process()
+
+    def _stop_process(self) -> None:
         process = self._process
         if not process or process.poll() is not None:
             return
-        process.terminate()
         try:
+            process.terminate()
             process.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            process.kill()
+            try:
+                process.kill()
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                self._logger.warning("Không thể reap FFmpeg sau khi kill: %s", exc)
+        except OSError as exc:
+            self._logger.warning("Không thể dừng FFmpeg: %s", exc)
 
     def _cleanup_temp(self) -> None:
         try:

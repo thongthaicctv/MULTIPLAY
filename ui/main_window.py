@@ -26,7 +26,13 @@ from PyQt6.QtWidgets import QGraphicsDropShadowEffect
 from PyQt6.QtGui import QColor
 
 from core.database_reader import DatabaseReader
-from core.video_merge_worker import VideoMergeWorker
+from core.video_merge_worker import (
+    MAX_INPUTS,
+    VideoMergeWorker,
+    is_unc_path,
+    local_missing_paths,
+    normalize_mp4_output_path,
+)
 
 
 
@@ -357,11 +363,13 @@ class MainWindow(QMainWindow):
         if len(paths) < 2:
             QMessageBox.warning(self, "Ghép video", "Vui lòng chọn ít nhất 2 video để ghép.")
             return
-        if len(paths) > 4:
-            QMessageBox.warning(self, "Ghép video", "Phase 2 chỉ hỗ trợ ghép tối đa 4 video.")
+        if len(paths) > MAX_INPUTS:
+            QMessageBox.warning(self, "Ghép video", f"Chỉ hỗ trợ ghép tối đa {MAX_INPUTS} video.")
             return
 
-        missing = [path for path in paths if not os.path.isfile(path)]
+        # MULTIPLAY-VIDEO-MERGE-HARDENING-2B: chi kiem tra nhanh file LOCAL tren UI thread.
+        # Duong dan UNC/NAS duoc VideoMergeWorker validate ngoai UI thread.
+        missing = local_missing_paths(paths)
         if missing:
             QMessageBox.critical(
                 self, "Không thể ghép video",
@@ -377,14 +385,14 @@ class MainWindow(QMainWindow):
         )
         if not output_path:
             return
-        if not output_path.lower().endswith(".mp4"):
-            output_path += ".mp4"
+        output_path = normalize_mp4_output_path(output_path)
 
         input_keys = {os.path.normcase(os.path.abspath(path)) for path in paths}
         if os.path.normcase(os.path.abspath(output_path)) in input_keys:
             QMessageBox.critical(self, "Đường dẫn không hợp lệ", "File kết quả không được trùng file nguồn.")
             return
-        if os.path.exists(output_path):
+        # Output tren UNC: khong probe tren UI thread (QFileDialog da hoi ghi de).
+        if not is_unc_path(output_path) and os.path.exists(output_path):
             answer = QMessageBox.question(
                 self, "Xác nhận ghi đè",
                 "File kết quả đã tồn tại. Bạn có muốn ghi đè không?",
