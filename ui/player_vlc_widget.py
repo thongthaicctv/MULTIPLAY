@@ -54,8 +54,6 @@ class PlayerVLC(QWidget):
         # ===== VLC =====
         self.instance = vlc.Instance(
             "--quiet",
-            "--network-caching=150",
-            "--file-caching=150",
             "--drop-late-frames",
             "--skip-frames"
         )
@@ -85,13 +83,32 @@ class PlayerVLC(QWidget):
 
         self.video_path = path
 
-        media = self.instance.media_new(path)
-        self.player.set_media(media)
+        # MULTIPLAY-PLAYBACK-EMBED-1B: chi bat dau phat khi widget da duoc gan
+        # vao layout va hien thi, de winId() tra ve HWND on dinh (giong script
+        # isolation da PASS). Neu chua hien thi, doi showEvent.
+        self._pending_path = path
+        if self.isVisible():
+            self._start_playback()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_pending_path", None):
+            self._start_playback()
+
+    def _start_playback(self):
+
+        path = self._pending_path
+        self._pending_path = None
+        if not path:
+            return
 
         if sys.platform == "win32":
             self.player.set_hwnd(int(self.video_frame.winId()))
         else:
             self.player.set_xwindow(int(self.video_frame.winId()))
+
+        media = self.instance.media_new(path)
+        self.player.set_media(media)
 
         self.player.play()
 
@@ -121,6 +138,7 @@ class PlayerVLC(QWidget):
 
     # ===== CONTROL =====
     def stop(self):
+        self._pending_path = None
         self.player.stop()
 
     def set_time(self, ms):
